@@ -3,7 +3,10 @@
     <header class="page-head">
       <div>
         <h2>采集任务管理</h2>
-        <p class="page-desc">维护采集作业的输入、执行约束与结果记录，为采集任务提供可验证的数据工程流程。</p>
+        <p class="page-desc">
+          维护采集作业的输入、执行约束与结果记录。调度执行计划生成的待执行任务会同步到这里，
+          批次完成后对应作业不会再回到待执行清单。
+        </p>
       </div>
       <div class="page-actions">
         <button class="btn primary" type="button" @click="openCreate">登记采集作业</button>
@@ -67,6 +70,55 @@
       <span>共 {{ total }} 条采集任务记录</span>
       <span v-if="errorMessage" class="error-text">{{ errorMessage }}</span>
     </footer>
+
+    <section class="scheduler-panel">
+      <header class="panel-head">
+        <div>
+          <h3>调度待执行任务</h3>
+          <p class="page-desc">
+            与执行计划同一口径：按计划触发时刻、优先级和轮次排序，只展示尚未完成的批次。
+          </p>
+        </div>
+        <div class="page-actions">
+          <button class="btn" type="button" @click="reload">刷新待执行清单</button>
+        </div>
+      </header>
+      <p class="page-desc">调度时钟 {{ clock }}，待执行 {{ pending.length }} 条。</p>
+
+      <table class="data-table compact-table">
+        <thead>
+          <tr>
+            <th>执行批次</th>
+            <th>规则</th>
+            <th>优先级</th>
+            <th>轮次</th>
+            <th>采集作业</th>
+            <th>目标站点</th>
+            <th>计划触发时刻</th>
+            <th>表达式快照</th>
+            <th>来源</th>
+            <th>状态</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr v-for="item in pending" :key="item.executionTaskId">
+            <td>{{ item.batchKey }}</td>
+            <td>{{ item.ruleNo }}</td>
+            <td>{{ item.priority }}</td>
+            <td>{{ item.roundOrder }}</td>
+            <td>{{ item.taskNo }}</td>
+            <td>{{ item.site }}</td>
+            <td>{{ item.triggerMinute }}</td>
+            <td>{{ item.expression }}</td>
+            <td>{{ item.source }}</td>
+            <td>{{ item.status }}</td>
+          </tr>
+          <tr v-if="!pending.length">
+            <td colspan="10" class="empty-state">当前没有待执行的调度任务</td>
+          </tr>
+        </tbody>
+      </table>
+    </section>
   </section>
 </template>
 
@@ -79,13 +131,21 @@ import {
   moduleMeta,
   runAction as applyAction,
 } from '@/api/local-service'
+import { scheduleBoard, schedulerClock } from '@/api/scheduler'
+import type { PendingTaskView } from '@/data/scheduler-types'
 import type { EntryRow } from '@/data/types'
 
 const meta = moduleMeta('spider')
 const columns = ["作业编号", "目标站点", "抽取模板", "起始地址", "并发线程数", "请求间隔秒", "每日上限条数", "超时秒数"]
 const actions = ["提交执行", "启动采集", "终止采集", "归档结果"]
 const statuses = ["草稿", "待执行", "运行中", "已完成", "已失败"]
-const stats = [{"label": "采集作业总数", "value": 0}, {"label": "运行中作业", "value": 0}, {"label": "已完成作业", "value": 0}]
+const stats = computed(() => [
+  { label: '采集作业总数', value: rows.value.length },
+  { label: '运行中作业', value: rows.value.filter((row) => row.status === '运行中').length },
+  { label: '已完成作业', value: rows.value.filter((row) => row.status === '已完成').length },
+])
+const pending = ref<PendingTaskView[]>([])
+const clock = ref('')
 
 const rows = ref<EntryRow[]>([])
 const total = ref(0)
@@ -131,6 +191,9 @@ function reload() {
   } catch (error) {
     errorMessage.value = error instanceof Error ? error.message : '采集任务列表读取失败'
   }
+  const board = scheduleBoard()
+  pending.value = board.pending
+  clock.value = schedulerClock()
 }
 
 onMounted(reload)
